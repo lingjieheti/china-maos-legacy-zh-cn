@@ -328,6 +328,35 @@ def patch_launcher(src):
                 if word in words:raw[at:at+width]=unity_string(words[word])
             obj.set_raw_data(bytes(raw))
 
+def language_buttons(src, fontdir):
+    from PIL import Image, ImageDraw, ImageFont
+
+    # Both language menus reference these four normal/hover textures. Leave their
+    # sprites, existing frames and the separate streamed background untouched.
+    choices = {
+        2: ("Русский", 415, True),
+        3: ("简体中文", 414, True),
+        4: ("简体中文", 414, False),
+        5: ("Русский", 415, False),
+    }
+    fonts = {label: ImageFont.truetype(str(fontdir / "UI-Semibold.ttf"), size)
+             for label, size in (("简体中文", 72), ("Русский", 64))}
+    for pid, (label, width, hover) in choices.items():
+        texture = src.objects[pid].read()
+        sprite = src.objects[pid + 6].read()
+        if (sprite.m_RD.texture.m_PathID != pid or sprite.m_RD.texture.m_FileID != 0
+                or (texture.m_Width, texture.m_Height, texture.m_TextureFormat) != (width, 207, 4)):
+            raise ValueError("语言按钮原图不匹配")
+        image = Image.new("RGBA", (width, 207), "#833a36" if hover else "#442d2a")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((7, 7, width - 8, 199), outline="#efdba9" if hover else "#ad9675", width=4)
+        font = fonts[label]
+        left, top, right, bottom = draw.textbbox((0, 0), label, font=font)
+        origin = ((width - left - right) // 2, (207 - top - bottom) // 2)
+        draw.text(origin, label, font=font, fill="#fff6df")
+        texture.set_image(image)
+        texture.save()
+
 def economy_typography(src):
     # Budget cards share the same art and text area. Values and +/- controls retain their original scale.
     budget={523,524,533,538,540,543,547,555,559,564,569,574,575,580,597,599,600}
@@ -359,6 +388,8 @@ def build_assets(data, stage, cache, fontdir):
             french_resource_index(src)
         elif rel=="sharedassets0.assets":
             patch_launcher(src)
+        elif rel=="sharedassets1.assets":
+            language_buttons(src, fontdir)
         elif rel in ("sharedassets2.assets","sharedassets3.assets"):
             for obj in src.objects.values():
                 if obj.type.name=="Font":

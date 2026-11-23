@@ -40,6 +40,28 @@ internal class PatchAssembly
                i.OpCode==OpCodes.Box && ((TypeReference)i.Operand).FullName=="System.Single" && i.Previous.OpCode==OpCodes.Div;
     }
 
+    static Dictionary<Instruction,object> SaveDate(MethodDefinition method)
+    {
+        var changes = new Dictionary<Instruction,object>();
+        if (method.Name != "BuildOpisText" ||
+            (method.DeclaringType.Name != "Savescript" && method.DeclaringType.Name != "LoadInScript")) return changes;
+        var code = method.Body.Instructions;
+        int begin = code.IndexOf(code.Single(i => i.OpCode == OpCodes.Ldstr && (string)i.Operand == "\nDate: "));
+        int end = code.IndexOf(code.Single(i => i.OpCode == OpCodes.Ldstr && (string)i.Operand == "\nDifficulty: "));
+        var date = code.Skip(begin + 1).Take(end - begin - 1).ToArray();
+        var fields = date.Where(i => i.OpCode == OpCodes.Ldloca_S).ToArray();
+        var separators = date.Where(i => i.OpCode == OpCodes.Ldstr).ToArray();
+        if (!fields.Select(i => ((VariableDefinition)i.Operand).Index).SequenceEqual(new[] {7, 8, 9})
+            || separators.Length != 2 || separators.Any(i => (string)i.Operand != "."))
+            throw new InvalidDataException("Unexpected save date display: " + method.FullName);
+        // The original display reads day, month, year. The save data and the
+        // Russian branch keep their original field order and serialization.
+        changes[fields[0]] = fields[2].Operand;
+        changes[fields[2]] = fields[0].Operand;
+        foreach (var separator in separators) changes[separator] = "-";
+        return changes;
+    }
+
     static void Audit(string source, string output, IDictionary<string,Row> map, ReaderParameters settings)
     {
         var original=AssemblyDefinition.ReadAssembly(source,settings);
@@ -54,6 +76,7 @@ internal class PatchAssembly
             var old=before[i];var now=after[i];
             if(old.FullName!=now.FullName || old.HasBody!=now.HasBody)throw new InvalidDataException(old.FullName);
             if(!old.HasBody)continue;
+            var saveDate = SaveDate(old);
             var x=old.Body.Instructions;var y=now.Body.Instructions;
             int added=old.Name=="Text" && layoutTypes.Contains(old.DeclaringType.FullName)?5:0;
             if(y.Count!=x.Count+added)throw new InvalidDataException("IL size: "+old.FullName);
@@ -69,6 +92,8 @@ internal class PatchAssembly
                     string site=old.MetadataToken.RID.ToString()+":"+a.Offset.ToString();
                     if(map.TryGetValue((string)a.Operand,out row) && (row.Sites.Count==0 || row.Sites.Contains(site))) expected=row.Chinese;
                 }
+                object changed;
+                if (saveDate.TryGetValue(a,out changed)) expected=Operand(old,changed,0);
                 if(ReserveFloat(old,a) && b.OpCode==OpCodes.Call && ((MethodReference)b.Operand).FullName.Contains("ChineseLayout::FormatReserve")){checkedCount++;continue;}
                 if(a.OpCode!=b.OpCode || expected!=Operand(now,b.Operand,added))
                     throw new InvalidDataException("Unexpected IL change: "+old.FullName+" / "+j);
@@ -129,7 +154,13 @@ internal class PatchAssembly
         int calls = 0;
         foreach (var type in Flatten(assembly.MainModule.Types)) foreach (var method in type.Methods) {
             if (!method.HasBody) continue;
+            var saveDate = SaveDate(method);
             foreach (var instruction in method.Body.Instructions) {
+                object dateOperand;
+                if (saveDate.TryGetValue(instruction,out dateOperand)) {
+                    instruction.Operand=dateOperand;
+                    continue;
+                }
                 if(ReserveFloat(method,instruction)) {
                     instruction.OpCode=OpCodes.Call;
                     instruction.Operand=assembly.MainModule.ImportReference(helper.MainModule.GetType("Nostalgames.ZhCN.ChineseLayout").Methods.Single(m=>m.Name=="FormatReserve"));

@@ -68,12 +68,19 @@ def main():
         if running():raise RuntimeError("请先退出游戏")
         cache.mkdir(parents=True,exist_ok=True)
     with locked(backup.parent):
-        if args.action in ("restore","verify"):
+        if args.action=="restore":
             return manage(args.action,game,backup)
         fonts=args.fonts.resolve()
         recipe=revision(fonts)
         marker=backup/"recipe.txt"
         installed_recipe=marker.read_text("ascii").strip() if marker.is_file() else ""
+        if args.action=="verify":
+            # Diagnose damaged game/backup files before suggesting a routine update.
+            count=manage("verify",game,backup,report=False)
+            if installed_recipe!=recipe or count!=len(MANIFEST["originals"])+1:
+                raise ValueError("已安装的汉化文件完整，当前安装器的版本更新。请点击“安装汉化”升级。")
+            print("当前版本汉化文件及原件备份均已核验")
+            return
         # Release 1.2 changed dependency acquisition only. A verified v1.1
         # installation has identical game content. Restrict the fast path to
         # this pair of recipes so any later source or font edit still rebuilds.
@@ -82,21 +89,23 @@ def main():
             "a7eef2cc63e26a5d0da1ef8847ed06253c103dc03cbc30706c63608c00f394c1")
         if installed_recipe==recipe or same_content:
             try:
-                manage("verify",game,backup)
-                if same_content:marker.write_text(recipe,"ascii")
-                print("已安装当前版本")
-                return
+                count=manage("verify",game,backup,report=False)
+                if count==len(MANIFEST["originals"])+1:
+                    if same_content:marker.write_text(recipe,"ascii")
+                    print("已安装当前版本")
+                    return
             except ValueError:
                 pass
         ensure_dependencies(cache,args.offline)
         originals=backup/"original"
-        source=originals if (originals/"Managed/Assembly-CSharp.dll").exists() else game
+        source=originals if originals.is_dir() else game
         if source==originals:
             for rel,expected in MANIFEST["originals"].items():
-                if not (originals/rel).is_file():
+                saved=originals/rel
+                if not saved.is_file() or digest(saved)!=expected:
                     if not (game/rel).is_file() or digest(game/rel)!=expected:
-                        raise ValueError("新涉及的文件需要 Steam 原件："+rel)
-                    atomic_copy(game/rel,originals/rel,expected)
+                        raise ValueError("需要完整的 Steam 原件："+rel+"。请通过 Steam 验证游戏文件完整性，再安装汉化。")
+                    atomic_copy(game/rel,saved,expected)
         with tempfile.TemporaryDirectory(prefix="stage-",dir=cache) as tmp:
             stage=Path(tmp)
             hashes=build(source,stage,cache,fonts,offline=args.offline)

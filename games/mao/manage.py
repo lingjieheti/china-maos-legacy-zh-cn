@@ -39,15 +39,19 @@ def fingerprint(path):
     return digest(path) if path.is_file() else None
 
 def check_state(state,game,backup,originals):
-    if set(state.get("patched",{}))!=set(originals):
+    recorded=set(state.get("patched",{}))
+    # 1.2.1 added the language-selector artwork. Old receipts still describe
+    # precisely the files that their version installed and can restore.
+    if recorded!=set(originals) and recorded!=set(originals)-{"sharedassets1.assets"}:
         raise ValueError("安装记录与本版本的文件清单不符")
     if Path(state["game"])!=game:
         # Steam can move an installation, backup folder included. Only reuse a
         # relocated backup when every original matches this supported Steam build.
-        if any(fingerprint(backup/"original"/n)!=h for n,h in originals.items() if h is not None):
-            raise ValueError("移动后的游戏缺少完整原件备份")
+        for n in recorded:
+            if originals[n] is not None and fingerprint(backup/"original"/n)!=originals[n]:
+                raise ValueError("移动后的游戏缺少完整原件备份："+n)
 
-def manage(action, game, backup, stage=None):
+def manage(action, game, backup, stage=None, report=True):
     game=game.resolve()
     backup=backup.resolve()
     originals={**MANIFEST["originals"],HELPER:None}
@@ -101,6 +105,7 @@ def manage(action, game, backup, stage=None):
     state=json.loads(state_path.read_text("utf-8"))
     check_state(state,game,backup,originals)
     if action=="restore":
+        originals={n:originals[n] for n in state["patched"]}
         for n,h in originals.items():
             if fingerprint(game/n) not in (h,state["patched"][n],state.get("previous",{}).get(n,h)):
                 raise ValueError("游戏版本已变化，已保留现场 "+n)
@@ -112,9 +117,15 @@ def manage(action, game, backup, stage=None):
         target=originals
     else:
         target=state["patched"]
-    if any(fingerprint(game/n)!=h for n,h in target.items()):
-        raise ValueError("最终校验失败")
-    print(f"{action}: {len(target)} files verified")
+    for n,h in target.items():
+        if fingerprint(game/n)!=h:
+            raise ValueError("游戏文件校验失败："+n+"。请通过 Steam 验证游戏文件完整性，再安装汉化。")
+    if action=="verify":
+        for n in target:
+            if originals[n] is not None and fingerprint(backup/"original"/n)!=originals[n]:
+                raise ValueError("原件备份缺失或损坏："+n+"。请先保留备份，通过 Steam 验证游戏文件完整性。")
+    if report:print(f"{action}: {len(target)} files verified")
+    return len(target)
 
 if __name__=="__main__":
     parser=argparse.ArgumentParser()
