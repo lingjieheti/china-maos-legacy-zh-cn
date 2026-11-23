@@ -28,7 +28,8 @@ class ReceiptChecks(unittest.TestCase):
         self.backup.mkdir(parents=True)
         self.source = self.backup / "original"
         self.source.mkdir()
-        self.stock = {"level5": b"original settings", "sharedassets1.assets": b"original artwork"}
+        self.stock = {"level5": b"original settings", "sharedassets1.assets": b"original artwork",
+                      "sharedassets5.assets": b"original settings artwork"}
         originals = {n: hashlib.sha256(v).hexdigest() for n, v in self.stock.items()}
         self.scope.enter_context(mock.patch.dict(patch.MANIFEST, {"originals": originals}))
         self.scope.enter_context(mock.patch.object(manager, "running", return_value=False))
@@ -41,8 +42,9 @@ class ReceiptChecks(unittest.TestCase):
         (self.source / "level5").write_bytes(self.stock["level5"])
         (self.data / "level5").write_bytes(b"old translated scene")
         (self.data / "sharedassets1.assets").write_bytes(self.stock["sharedassets1.assets"])
+        (self.data / "sharedassets5.assets").write_bytes(self.stock["sharedassets5.assets"])
         initial = {name: patch.digest(self.data / name) for name in ("level5", patch.HELPER)}
-        manager.write_state({"game": str(self.data), "patched": initial}, self.backup / "installed.json")
+        manager.write_state({"game": str(self.data.resolve()), "patched": initial}, self.backup / "installed.json")
         (self.backup / "recipe.txt").write_text("old", "ascii")
 
     def verify(self):
@@ -93,6 +95,58 @@ class ReceiptChecks(unittest.TestCase):
 
 @unittest.skipUnless(os.getenv("MAO_TEST_GAME"), "set MAO_TEST_GAME for the optional game-data readback")
 class ArtworkReadback(unittest.TestCase):
+    def test_settings_music_titles_use_one_line(self):
+        import struct
+        import UnityPy
+        from build import read_unity_string
+        data = patch.game_data(Path(os.environ["MAO_TEST_GAME"]))
+        level = UnityPy.load((data / "level5").read_bytes()).file
+        raw = level.objects[562].get_raw_data()
+        count, = struct.unpack_from("<I", raw, 32)
+        self.assertEqual(count, 43)
+        english_slot = []
+        cursor = 36
+        for _ in range(count):
+            value, width = read_unity_string(raw, cursor)
+            english_slot.append(value)
+            cursor += width
+        self.assertEqual([english_slot[i] for i in (22, 23, 25, 30, 38)], [
+            "献给毛主席", "大海航行靠舵手", "全世界人民热爱毛主席", "毛主席思想永放光芒", "跟着毛主席"])
+        for title in english_slot[1:41]:
+            self.assertTrue(title)
+            self.assertNotRegex(title, r"[|\r\n]")
+
+    def test_visible_settings_controls_follow_their_actual_sprite_links(self):
+        import UnityPy
+        from PIL import Image, ImageDraw, ImageFont
+        data = patch.game_data(Path(os.environ["MAO_TEST_GAME"]))
+        level = UnityPy.load((data / "level5").read_bytes()).file
+        rel = "sharedassets5.assets"
+        patched = UnityPy.load((data / rel).read_bytes()).file
+        original = UnityPy.load((data.parent / ".nostalgames-zh-cn/backup/original" / rel).read_bytes()).file
+        self.assertEqual({pid for pid, obj in patched.objects.items() if
+                          obj.get_raw_data() != original.objects[pid].get_raw_data()}, {29, 37})
+        for renderer_id, label, size in ((448, "Русский", 36), (452, "简体中文", 41)):
+            renderer = level.objects[renderer_id].read()
+            self.assertEqual(level.externals[renderer.m_Sprite.m_FileID-1].path, rel)
+            sprite = patched.objects[renderer.m_Sprite.m_PathID].read()
+            image = patched.objects[sprite.m_RD.texture.m_PathID].read().image.convert("RGB")
+            self.assertEqual(image.size, (224, 136))
+            mask = image.split()[0].point(lambda r: 255 if r == 255 else 0)
+            bounds = mask.getbbox()
+            self.assertIsNotNone(bounds)
+            x, y, right, bottom = bounds
+            self.assertGreater(min(x, image.width-right, y, image.height-bottom), 20)
+            glyphs = Image.new("L", image.size)
+            font = ImageFont.truetype(str(patch.HERE.parents[1] / "fonts/UI-Semibold.ttf"), size)
+            ImageDraw.Draw(glyphs).text((0, 0), label, font=font, fill=255)
+            glyphs = glyphs.point(lambda r: 255 if r == 255 else 0)
+            expected = glyphs.crop(glyphs.getbbox())
+            actual = mask.crop(bounds)
+            self.assertEqual(actual.size, expected.size)
+            self.assertLess(sum(a != b for a, b in zip(actual.tobytes(), expected.tobytes())),
+                            actual.width * actual.height * .01)
+
     def test_sprite_targets_word_shapes_and_hover(self):
         import UnityPy
         from PIL import Image, ImageDraw, ImageFont

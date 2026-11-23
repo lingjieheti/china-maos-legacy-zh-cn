@@ -2,7 +2,7 @@
 
 **[下载 Windows 安装程序（.exe）](https://github.com/lingjieheti/china-maos-legacy-zh-cn/releases/latest/download/china-maos-legacy-zh-cn-Setup.exe)**
 
-退出游戏，双击安装程序。它会自动找到 Steam 游戏目录，点击 **安装汉化** 即可。从 Steam 启动游戏，在主菜单点击 **简体中文**。
+退出游戏，双击安装程序。它会自动找到 Steam 游戏目录，点击 **安装汉化** 即可。从 Steam 启动游戏，打开主菜单的设置，点击 **简体中文**。
 
 首次安装会自动下载社区翻译素材，耗时取决于网络。也可手动选择目录。游戏更新后，可点 **核验汉化** 检查当前安装。需要恢复原版时，点击 **还原原版**。
 

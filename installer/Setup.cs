@@ -248,7 +248,7 @@ internal sealed class Installer : Form
                 });
                 if (action == "install") payload.Run("verify",game,null);
             });
-            string message = action == "install" ? "汉化已安装并核验。请从 Steam 启动游戏，在主菜单点击“简体中文”。" : action == "verify" ? "核验通过，汉化文件完整。" : "已还原。";
+            string message = action == "install" ? "汉化已安装并核验。请从 Steam 启动游戏，打开主菜单的设置，点击“简体中文”。" : action == "verify" ? "核验通过，汉化文件完整。" : "已还原。";
             status.Text = message;
             MessageBox.Show(this,message,Text,MessageBoxButtons.OK,MessageBoxIcon.Information);
         }

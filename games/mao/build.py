@@ -328,33 +328,36 @@ def patch_launcher(src):
                 if word in words:raw[at:at+width]=unity_string(words[word])
             obj.set_raw_data(bytes(raw))
 
-def language_buttons(src, fontdir):
+def language_buttons(src, fontdir, settings):
     from PIL import Image, ImageDraw, ImageFont
 
-    # Both language menus reference these four normal/hover textures. Leave their
-    # sprites, existing frames and the separate streamed background untouched.
-    choices = {
-        2: ("Русский", 415, True),
-        3: ("简体中文", 414, True),
-        4: ("简体中文", 414, False),
-        5: ("Русский", 415, False),
-    }
+    # The settings screen has its own smaller pair, without hover sprites.
+    # Textures alone change; the original sprites and colliders retain their size.
+    if settings:
+        choices = [(29, 70, "Русский", 224, False), (37, 78, "简体中文", 224, False)]
+        height, original_format, chinese_size, russian_size = 136, 10, 41, 36
+    else:
+        choices = [(2, 8, "Русский", 415, True), (3, 9, "简体中文", 414, True),
+                   (4, 10, "简体中文", 414, False), (5, 11, "Русский", 415, False)]
+        height, original_format, chinese_size, russian_size = 207, 4, 72, 64
     fonts = {label: ImageFont.truetype(str(fontdir / "UI-Semibold.ttf"), size)
-             for label, size in (("简体中文", 72), ("Русский", 64))}
-    for pid, (label, width, hover) in choices.items():
+             for label, size in (("简体中文", chinese_size), ("Русский", russian_size))}
+    for pid, sprite_id, label, width, hover in choices:
         texture = src.objects[pid].read()
-        sprite = src.objects[pid + 6].read()
+        sprite = src.objects[sprite_id].read()
         if (sprite.m_RD.texture.m_PathID != pid or sprite.m_RD.texture.m_FileID != 0
-                or (texture.m_Width, texture.m_Height, texture.m_TextureFormat) != (width, 207, 4)):
+                or (texture.m_Width, texture.m_Height, texture.m_TextureFormat) != (width, height, original_format)):
             raise ValueError("语言按钮原图不匹配")
-        image = Image.new("RGBA", (width, 207), "#833a36" if hover else "#442d2a")
+        image = Image.new("RGBA", (width, height), "#833a36" if hover else "#442d2a")
         draw = ImageDraw.Draw(image)
-        draw.rectangle((7, 7, width - 8, 199), outline="#efdba9" if hover else "#ad9675", width=4)
+        inset = 4 if settings else 7
+        draw.rectangle((inset, inset, width-inset-1, height-inset-1),
+                       outline="#efdba9" if hover else "#ad9675", width=2 if settings else 4)
         font = fonts[label]
         left, top, right, bottom = draw.textbbox((0, 0), label, font=font)
-        origin = ((width - left - right) // 2, (207 - top - bottom) // 2)
+        origin = ((width - left - right) // 2, (height - top - bottom) // 2)
         draw.text(origin, label, font=font, fill="#fff6df")
-        texture.set_image(image)
+        texture.set_image(image, target_format=4)
         texture.save()
 
 def economy_typography(src):
@@ -388,8 +391,8 @@ def build_assets(data, stage, cache, fontdir):
             french_resource_index(src)
         elif rel=="sharedassets0.assets":
             patch_launcher(src)
-        elif rel=="sharedassets1.assets":
-            language_buttons(src, fontdir)
+        elif rel in ("sharedassets1.assets","sharedassets5.assets"):
+            language_buttons(src, fontdir, settings=rel=="sharedassets5.assets")
         elif rel in ("sharedassets2.assets","sharedassets3.assets"):
             for obj in src.objects.values():
                 if obj.type.name=="Font":
