@@ -6,7 +6,7 @@
 
 首次安装会自动下载社区翻译素材，耗时取决于网络。也可手动选择目录。需要恢复原版时，再次打开安装程序，点击 **还原原版**。
 
-适配 Steam Windows x64 构建 **21377206**。[校对记录](games/mao/AUDIT.md) · [补丁来源与技术说明](games/mao/README.md) · [游戏内截图](docs/images/mao-economy.webp)
+适配 Steam Windows x64 构建 **21377206**。[校对记录](games/mao/AUDIT.md) · [补丁来源与技术说明](games/mao/README.md) · [游戏内截图](docs/mao-economy.webp)
 
 <details>
 <summary>从源码构建安装程序</summary>
