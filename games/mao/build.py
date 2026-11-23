@@ -4,7 +4,7 @@ import base64
 import collections
 import copy
 import hashlib
-import io
+import http.client
 import json
 import os
 import re
@@ -12,6 +12,7 @@ import shutil
 import struct
 import subprocess
 import tempfile
+import time
 import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -19,7 +20,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 MANIFEST = json.loads((HERE / "manifest.json").read_text("utf-8"))
-CECIL_URL = "https://api.nuget.org/v3-flatcontainer/mono.cecil/0.11.6/mono.cecil.0.11.6.nupkg"
 CECIL_SHA = "d2a23832aaa948ba9a01acc42b5726e34c5f995958f1b30d45c0e7c70b3a72d5"
 HELPER = "Managed/Nostalgames.ChineseLayout.dll"
 
@@ -27,32 +27,51 @@ def digest(path):
     with path.open("rb") as f:
         return hashlib.file_digest(f, "sha256").hexdigest()
 
-def fetch(url, dest, expected):
+def fetch(url, dest, expected, offline=False):
     if dest.is_file() and digest(dest) == expected:
-        return
+        return False
+    if offline:
+        raise ValueError("离线缓存缺失或校验失败：" + str(dest))
     dest.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=dest.parent, delete=False) as f:
         temp = Path(f.name)
     try:
-        with urllib.request.urlopen(url, timeout=90) as r, temp.open("wb") as f:
-            shutil.copyfileobj(r, f)
-        if digest(temp) != expected:
-            raise ValueError("下载校验失败 " + str(dest))
+        # Keep completed files across retries. Never replace a cached file with an incomplete download.
+        for attempt in range(3):
+            try:
+                request=urllib.request.Request(url,headers={"User-Agent":"China-Maos-Legacy-ZhCN"})
+                with urllib.request.urlopen(request,timeout=60) as response, temp.open("wb") as f:
+                    total=0
+                    while block:=response.read(1024*1024):
+                        f.write(block)
+                        total+=len(block)
+                        if total//(16*1024*1024)!=(total-len(block))//(16*1024*1024):
+                            print(f"{dest.name} 已接收 {total//(1024*1024)} MB",flush=True)
+                if digest(temp)!=expected:raise ValueError("下载内容的 SHA-256 不匹配")
+                break
+            except (OSError, ValueError, EOFError, http.client.HTTPException) as err:
+                if attempt==2:raise RuntimeError(f"三次下载均未通过：{dest.name}。已核验的缓存会保留，下次安装可继续。{err}") from err
+                time.sleep(attempt+1)
         os.replace(temp, dest)
+        return True
     finally:
         temp.unlink(missing_ok=True)
 
-def dependencies(cache):
+def dependencies(cache, offline=False):
     commit = MANIFEST["commit"]
     def download(item):
         rel, sha = item
         host = "media.githubusercontent.com/media" if rel.endswith("/resources.assets") else "raw.githubusercontent.com"
         url = f"https://{host}/LeXwDeX/Mao-s-Legacy-Chinese-Tools/{commit}/{rel}"
-        fetch(url, cache / rel, sha)
+        if fetch(url, cache / rel, sha, offline=offline):
+            print("已下载并校验 " + rel, flush=True)
+    package = HERE / "vendor/mono.cecil.0.11.6.nupkg"
+    if not package.is_file() or digest(package)!=CECIL_SHA:
+        raise ValueError("Mono.Cecil 组件缺失或校验失败，请重新获取完整的简体中文安装包。")
+    print("正在核验社区汉化缓存，首次安装会下载缺少的文件。" if not offline else "正在核验离线缓存。",flush=True)
+    print(f"缓存目录：{cache}",flush=True)
     with ThreadPoolExecutor(max_workers=5) as pool:
         list(pool.map(download, MANIFEST["upstream"].items()))
-    package = cache / "mono.cecil.0.11.6.nupkg"
-    fetch(CECIL_URL, package, CECIL_SHA)
     return package
 
 def read_unity_string(raw, offset):
@@ -378,14 +397,14 @@ def build_assets(data, stage, cache, fontdir):
                 raise ValueError(f"写入不一致 {rel}/{pid}")
         print("OK "+rel,flush=True)
 
-def build(data, stage, cache, fonts):
+def build(data, stage, cache, fonts, offline=False):
     for rel,h in MANIFEST["originals"].items():
         if not (data/rel).is_file() or digest(data/rel)!=h:
             raise ValueError("需要指定版本的 Steam 原件，校验失败 "+rel)
     for folder in (stage, cache):
         if folder==data or data in folder.parents: raise ValueError("构建与缓存目录须位于游戏目录以外")
     stage.mkdir(parents=True,exist_ok=True)
-    package=dependencies(cache)
+    package=dependencies(cache, offline)
     with tempfile.TemporaryDirectory(dir=stage) as tmp:
         build_assembly(data,stage,cache,package,Path(tmp))
     build_assets(data,stage,cache,fonts)

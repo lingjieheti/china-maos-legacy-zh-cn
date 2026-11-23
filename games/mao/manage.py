@@ -31,17 +31,27 @@ def write_state(state, path):
 def running():
     if os.name!="nt":
         return False
-    listing=subprocess.check_output(["tasklist","/FO","CSV","/NH","/FI","IMAGENAME eq China.exe"])
+    tasklist=Path(os.environ["SystemRoot"])/"System32/tasklist.exe"
+    listing=subprocess.check_output([str(tasklist),"/FO","CSV","/NH","/FI","IMAGENAME eq China.exe"])
     return any(row and row[0].lower()=="china.exe" for row in csv.reader(listing.decode("mbcs",errors="replace").splitlines()))
 
 def fingerprint(path):
     return digest(path) if path.is_file() else None
 
+def check_state(state,game,backup,originals):
+    if set(state.get("patched",{}))!=set(originals):
+        raise ValueError("安装记录与本版本的文件清单不符")
+    if Path(state["game"])!=game:
+        # Steam can move an installation, backup folder included. Only reuse a
+        # relocated backup when every original matches this supported Steam build.
+        if any(fingerprint(backup/"original"/n)!=h for n,h in originals.items() if h is not None):
+            raise ValueError("移动后的游戏缺少完整原件备份")
+
 def manage(action, game, backup, stage=None):
     game=game.resolve()
     backup=backup.resolve()
     originals={**MANIFEST["originals"],HELPER:None}
-    if game.name!="China_Data" or not (game.parent/"China.exe").is_file():
+    if game.name.casefold()!="china_data" or not (game.parent/"China.exe").is_file():
         raise ValueError("请指定 China.exe 旁的 China_Data 目录")
     if backup==game or game in backup.parents:
         raise ValueError("备份目录须位于游戏目录外")
@@ -57,7 +67,7 @@ def manage(action, game, backup, stage=None):
             raise ValueError("构建文件校验失败")
         if state_path.is_file():
             state=json.loads(state_path.read_text("utf-8"))
-            if Path(state["game"])!=game:raise ValueError("备份属于其他安装")
+            check_state(state,game,backup,originals)
             previous=state["patched"]
         else:
             previous={}
@@ -89,8 +99,7 @@ def manage(action, game, backup, stage=None):
     if not state_path.is_file():
         raise ValueError("找不到安装记录 "+str(state_path))
     state=json.loads(state_path.read_text("utf-8"))
-    if Path(state["game"])!=game or set(state["patched"])!=set(originals):
-        raise ValueError("安装记录不匹配")
+    check_state(state,game,backup,originals)
     if action=="restore":
         for n,h in originals.items():
             if fingerprint(game/n) not in (h,state["patched"][n],state.get("previous",{}).get(n,h)):

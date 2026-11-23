@@ -4,7 +4,7 @@
 
 ## 安装与还原
 
-先安装 Steam 游戏和 Windows 版 Python 3.11 或更高版本，退出游戏。在完整发行包的根目录执行下列命令。
+安装 Steam 游戏后，退出游戏。普通玩家直接运行本游戏的 Windows 安装程序。若使用源码并已安装 64 位 Python 3.11 或更高版本，可在源码根目录执行下列命令。
 
 ```powershell
 py -3 games/mao/patch.py install
@@ -12,9 +12,9 @@ py -3 games/mao/patch.py verify
 py -3 games/mao/patch.py restore
 ```
 
-第一条安装中文，第二条核验当前补丁，第三条恢复安装前的文件。工具会在 Steam 库中查找游戏。自定义目录可在命令末尾加 `--game-data "D:\Games\Mao's Legacy\China_Data"`。如果系统使用 `python` 启动 Python，可将命令中的 `py -3` 替换为 `python`。
+第一条安装中文，第二条核验当前补丁，第三条恢复安装前的文件。工具会在 Steam 主库及其他库目录查找游戏。若需手动指定，可在命令末尾加 `--game-data "D:\Games\Mao's Legacy\China_Data"`。如果系统使用 `python` 启动 Python，可将命令中的 `py -3` 替换为 `python`。
 
-首次安装需要联网。程序在独立缓存中准备 UnityPy 1.25.4，对照固定提交下载社区翻译素材，并校验 Mono.Cecil 0.11.6 工具包，再用 Windows 自带的 .NET Framework C# 编译器生成补丁。整个过程不需要翻译服务或 API 密钥。原件保存在游戏安装目录的 `.nostalgames-zh-cn/backup/original`。缓存默认位于 `%LOCALAPPDATA%\Nostalgames-ZhCN\Mao`，可用 `--cache` 改变位置。
+首次安装从固定的上游提交获取约 159 MiB 社区素材，逐文件验证 SHA-256。已下载并校验的文件会保留，网络中断后可再次安装。完整 Windows 安装包包含 UnityPy 1.25.4 及 Mono.Cecil 0.11.6，构建时使用 Windows 的 .NET Framework 编译器。缓存齐全后可断网安装；源码命令可加 `--offline` 以强制仅使用缓存。核验、还原和已安装同版的重复安装均可离线进行。原件保存在游戏安装目录的 `.nostalgames-zh-cn/backup/original`。缓存默认位于 `%LOCALAPPDATA%\Nostalgames-ZhCN\Mao`，可用 `--cache` 改变位置。
 
 启动后先进入中文图形设置，再进入游戏。有旧俄语偏好时，可在游戏语言选择页点击英国旗帜进入简体中文。Steam 更新或完整性验证可能恢复游戏文件。如果版本仍匹配，重新运行安装命令即可。
 
@@ -37,5 +37,5 @@ py -3 games/mao/patch.py restore
 
 - 社区汉化文字、场景参考和 TMP 字体配置来自 LeXwDeX，固定至下列提交。安装时从上游读取所需数据，发布材料仅含本项目的改动和构建逻辑。[Mao’s Legacy Chinese Tools](https://github.com/LeXwDeX/Mao-s-Legacy-Chinese-Tools/tree/ae0e8ee740bdc0d44a8c172222130aee40164ded)
 - 原游戏由 Nostalgames 开发。[Steam 商店](https://store.steampowered.com/app/950740/China_Maos_legacy/)
-- 游戏和启动器使用同一份 Nostal UI SC 字体。字体许可及上游归属附在发行包的 `fonts` 目录。Mono.Cecil 的许可证随 NuGet 构建依赖提供。[Mono.Cecil](https://github.com/jbevain/cecil)
+- 游戏和启动器使用同一份 Nostal UI SC 字体。字体许可及上游归属附在发行包的 `fonts` 目录。游戏专用依赖包使用原始签名 NuGet 包；MIT 许可及来源附在 [vendor 说明](vendor/README.md)。
 - 法国人物译名对照原版俄文人名表及法国国民议会档案。[雅克·夏邦-戴尔马](https://www.assemblee-nationale.fr/histoire/tables_archives/jacques-chaban-delmas.asp) · [米歇尔·波尼亚托夫斯基](https://www2.assemblee-nationale.fr/sycomore/fiche/6415)

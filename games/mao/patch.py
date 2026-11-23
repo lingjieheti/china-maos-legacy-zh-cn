@@ -4,49 +4,31 @@ import contextlib
 import hashlib
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 sys.dont_write_bytecode = True
+sys.path.insert(0,str(Path(__file__).resolve().parent))
 from build import HERE, HELPER, MANIFEST, build, digest
 from manage import manage, running, atomic_copy
+from steam_paths import game_data, locate
 
-def locate():
-    import winreg
-    candidates=[]
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,r"Software\Valve\Steam") as key:
-            steam=Path(winreg.QueryValueEx(key,"SteamPath")[0])
-            candidates.append(steam)
-            manifest=steam/"steamapps/libraryfolders.vdf"
-            if manifest.is_file():
-                candidates += [Path(s.replace("\\\\","\\")) for s in re.findall(r'"path"\s+"([^"]+)"',manifest.read_text("utf-8-sig"))]
-    except OSError:
-        pass
-    for lib in candidates:
-        app=lib/"steamapps/appmanifest_950740.acf"
-        if not app.is_file():continue
-        found=re.search(r'"installdir"\s+"([^"]+)"',app.read_text("utf-8-sig"))
-        if found:
-            data=lib/"steamapps/common"/found[1]/"China_Data"
-            if (data.parent/"China.exe").is_file():return data.resolve()
-    raise RuntimeError("未找到游戏。请先通过 Steam 安装，或使用 --game-data 指定 China_Data。")
-
-def ensure_dependencies(cache):
+def ensure_dependencies(cache, offline=False):
     from importlib.metadata import PackageNotFoundError,version
     try:
         if version("UnityPy")=="1.25.4":return
     except PackageNotFoundError:pass
+    if any(Path(sys.executable).parent.glob("*._pth")) or offline:
+        raise RuntimeError("安装包缺少 UnityPy 1.25.4，请重新获取完整安装包。通过源码安装时可在 Python 环境中预装此依赖。")
     venv=cache/"python-venv"
     py=venv/"Scripts/python.exe"
     if not py.is_file():
         subprocess.run([sys.executable,"-m","venv",str(venv)],check=True)
     subprocess.run([str(py),"-m","pip","install","--disable-pip-version-check","UnityPy==1.25.4"],check=True)
     env=dict(os.environ,PYTHONDONTWRITEBYTECODE="1")
-    raise SystemExit(subprocess.call([str(py),str(HERE/"patch.py"),*sys.argv[1:]],env=env))
+    raise SystemExit(subprocess.call([str(py),"-B","-X","utf8",str(HERE/"patch.py"),*sys.argv[1:]],env=env))
 
 def revision(fonts):
     files=["build.py","PatchAssembly.cs","ChineseLayout.cs","manifest.json","assembly-plan.json","scenes.zh-CN.json","resources.zh-CN.json"]
@@ -74,31 +56,39 @@ def main():
     if sys.version_info<(3,11):raise RuntimeError("需要 Python 3.11 或更高版本")
     parser=argparse.ArgumentParser(description="中国：毛的遗产 简体中文补丁")
     parser.add_argument("action",choices=["install","verify","restore"])
-    parser.add_argument("--game-data",type=Path)
+    parser.add_argument("--game-dir","--game-data",dest="game_dir",type=Path)
+    parser.add_argument("--offline",action="store_true",help="仅使用已校验的本地社区缓存")
     parser.add_argument("--fonts",type=Path,default=HERE.parents[1]/"fonts")
     parser.add_argument("--cache",type=Path,default=Path(os.getenv("LOCALAPPDATA",tempfile.gettempdir()))/"Nostalgames-ZhCN"/"Mao")
     args=parser.parse_args()
-    game=args.game_data.resolve() if args.game_data else locate()
-    if (game/"China_Data").is_dir():game=game/"China_Data"
+    game=game_data(args.game_dir) if args.game_dir else locate()
     backup=game.parent/".nostalgames-zh-cn"/"backup"
     cache=args.cache.resolve()
     if args.action=="install":
         if running():raise RuntimeError("请先退出游戏")
         cache.mkdir(parents=True,exist_ok=True)
-        ensure_dependencies(cache)
     with locked(backup.parent):
         if args.action in ("restore","verify"):
             return manage(args.action,game,backup)
         fonts=args.fonts.resolve()
         recipe=revision(fonts)
         marker=backup/"recipe.txt"
-        if marker.is_file() and marker.read_text("ascii")==recipe:
+        installed_recipe=marker.read_text("ascii").strip() if marker.is_file() else ""
+        # Release 1.2 changed dependency acquisition only. A verified v1.1
+        # installation has identical game content. Restrict the fast path to
+        # this pair of recipes so any later source or font edit still rebuilds.
+        same_content=(installed_recipe,recipe)==(
+            "4fcf271a2fcba251c55d8dade8f0ab9a79afa58f781e2be57037b5e40f55322d",
+            "a7eef2cc63e26a5d0da1ef8847ed06253c103dc03cbc30706c63608c00f394c1")
+        if installed_recipe==recipe or same_content:
             try:
                 manage("verify",game,backup)
+                if same_content:marker.write_text(recipe,"ascii")
                 print("已安装当前版本")
                 return
             except ValueError:
                 pass
+        ensure_dependencies(cache,args.offline)
         originals=backup/"original"
         source=originals if (originals/"Managed/Assembly-CSharp.dll").exists() else game
         if source==originals:
@@ -109,7 +99,7 @@ def main():
                     atomic_copy(game/rel,originals/rel,expected)
         with tempfile.TemporaryDirectory(prefix="stage-",dir=cache) as tmp:
             stage=Path(tmp)
-            hashes=build(source,stage,cache,fonts)
+            hashes=build(source,stage,cache,fonts,offline=args.offline)
             (stage/"sha256.json").write_text(json.dumps(hashes,indent=2),"utf-8")
             manage("install",game,backup,stage)
         marker.write_text(recipe,"ascii")
