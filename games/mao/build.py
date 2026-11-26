@@ -134,6 +134,14 @@ def polish_resource(table, index, text):
         text=text.replace("（<color=none>perestroika</color>）","")
     if table=="Events_text_en" and index==1290:
         text=re.sub(r"<color=none>([^<>]*)</color>",r"\1",text)
+    if table == "Events_text_en":
+        # The source separates the sign from the value in many event costs.
+        # Restrict this to keyed effects so that dates and ranges stay intact.
+        text = re.sub(r"[:：] *([-+]) +(?=[0-9])",
+                      lambda m: "：" + ("−" if m[1] == "-" else "+"), text)
+        text = re.sub(r"(\{\d+\}) +([-+]) +(?=[0-9])",
+                      lambda m: m[1] + "：" + ("−" if m[2] == "-" else "+"), text)
+        text = re.sub(r"[,;] *(?=\{\d+\}[：:])", "，", text)
     if table=="new_texts_en" and index==981 and not text.endswith("|"):
         text+="|"
     return text
@@ -371,6 +379,32 @@ def economy_typography(src):
         mesh.m_CharacterSize,mesh.m_LineSpacing=right.get(pid,(0.063,1.0))
         mesh.save()
 
+def event_title_typography(src):
+    # doneventscript.Name is shared by event headlines; its upper edge sits
+    # against the top HUD. Zaglav is the separate body immediately below it.
+    label = src.objects[359].read()
+    transform = src.objects[160].read()
+    if (label.m_GameObject.m_PathID != 36 or transform.m_GameObject.m_PathID != 36 or
+        label.m_FontSize != 50 or label.m_Anchor != 1 or
+        abs(label.m_CharacterSize - .10) > .00001 or
+        abs(label.m_LineSpacing - .70) > .00001 or
+        abs(transform.m_LocalPosition.y - 4.596) > .00001):
+        raise ValueError("事件标题的原始排版与预期不符")
+    label.m_CharacterSize = .074
+    label.m_LineSpacing = .78
+    transform.m_LocalPosition.y = 4.484
+    label.save()
+    transform.save()
+
+def load_details_typography(src):
+    # Save and load use the same background art. In the load scene only, the
+    # details start 0.09 units higher and intersect the panel's top border.
+    transform = src.objects[31].read()
+    if transform.m_GameObject.m_PathID != 15 or abs(transform.m_LocalPosition.y - .98) > .00001:
+        raise ValueError("读档详情的位置与预期不符")
+    transform.m_LocalPosition.y = .89
+    transform.save()
+
 def build_assets(data, stage, cache, fontdir):
     import UnityPy
     patch = cache/"1.8.5_output"
@@ -421,6 +455,8 @@ def build_assets(data, stage, cache, fontdir):
                     raw=raw[:at]+unity_string(value)+raw[at+width:]
                 obj.set_raw_data(raw)
         if rel=="level9":economy_typography(src)
+        if rel=="level11":event_title_typography(src)
+        if rel=="level13":load_details_typography(src)
         dst=stage/rel
         dst.write_bytes(src.save())
         reread=UnityPy.load(dst.read_bytes()).file

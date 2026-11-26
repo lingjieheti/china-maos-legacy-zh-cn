@@ -90,6 +90,38 @@ def lookup_calls(assembly):
     finally:
         image.close()
 
+def audit_fonts(localized, report):
+    import dnfile
+    from dncil.cil.body.reader import read_method_body_from_bytes
+    import runpy
+    folder = localized if localized.is_dir() else localized.parent
+    translated = texts(folder)[0]
+    chars = {ch for name in TABLES for ch in translated[name + "_en"]}
+    image = dnfile.dnPE(str(folder / "Managed/Assembly-CSharp.dll"))
+    try:
+        tokens = set()
+        for method in image.net.mdtables.MethodDef:
+            if method.Rva:
+                code = read_method_body_from_bytes(image.get_data(method.Rva)).instructions
+                tokens.update(ins.operand.value & 0xffffff for ins in code if ins.opcode.name == "ldstr")
+        count = 0
+        for token in tokens:
+            value = image.net.user_strings.get(token).value
+            if HAN.search(value):
+                chars.update(value)
+                count += 1
+    finally:
+        image.close()
+    root = Path(__file__).resolve().parents[2]
+    coverage = runpy.run_path(str(root / "tools/check_release.py"))["font_coverage_and_spaces"]
+    needed = {ord(ch) for ch in chars if ch.isprintable()}
+    report["font_coverage"] = {"managed_chinese_strings": count, "unique_printable_characters": len(needed)}
+    for weight in ("Regular", "Semibold"):
+        supported, _ = coverage((root / "fonts" / f"UI-{weight}.ttf").read_bytes())
+        missing = sorted(needed - supported)
+        if missing:
+            report["errors"].append({"missing_glyphs": weight, "codepoints": [f"U+{cp:04X}" for cp in missing]})
+
 def audit(original, community, localized):
     (source, hs), (base, hb), (actual, ha) = map(texts, (original, community, localized))
     summary = {"sha256": {"original": hs, "community": hb, "localized": ha}, "tables": {},
@@ -164,6 +196,7 @@ def main():
     for name in ["original","community","localized"]:p.add_argument("--"+name,type=Path,required=True)
     p.add_argument("--json",type=Path,help="写入只含表名、索引、计数和哈希的报告")
     p.add_argument("--check-assembly",action="store_true",help="额外对照原版与译版程序集的国策和事件查询键，需要 dnfile 和 dncil")
+    p.add_argument("--check-fonts",action="store_true",help="核对两套字体对中文资源表和程序集中文字符串的字形覆盖，需要 dnfile 和 dncil")
     args=p.parse_args()
     report=audit(args.original,args.community,args.localized)
     if args.check_assembly:
@@ -176,6 +209,8 @@ def main():
             if len(keys)!=count or len(set(keys))!=distinct or keys!=original[op] or not set(keys)<=set(script_field(translated[table],"name")):
                 report["errors"].append({"binary_lookup_mismatch":op})
         report["assembly_calls"]={op:len(values) for op,values in final.items()}
+    if args.check_fonts:
+        audit_fonts(args.localized, report)
     if args.json:args.json.write_text(json.dumps(report,ensure_ascii=False,indent=2)+"\n","utf8")
     print(f"{len(report['tables'])} 张表，{sum(s['rows'] for s in report['tables'].values())} 行，{len(report['errors'])} 项错误")
     print("复核提示（允许正常的译文差异）", {k:len(v) for k,v in report["attention"].items()})

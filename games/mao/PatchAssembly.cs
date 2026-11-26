@@ -40,6 +40,32 @@ internal class PatchAssembly
                i.OpCode==OpCodes.Box && ((TypeReference)i.Operand).FullName=="System.Single" && i.Previous.OpCode==OpCodes.Div;
     }
 
+    static HashSet<Instruction> TradePenalties(MethodDefinition method)
+    {
+        var calls = new HashSet<Instruction>();
+        if (method.DeclaringType.Name != "modify_choose" || method.Name != "OnMouseDown") return calls;
+        var labels = new Dictionary<int,string> {
+            {749, "\nProfit from deals\n(fortnight): -"},
+            {873, "\nSupport of the people\n(fortnight): -"},
+            {997, "\nStandard of living\n(fortnight): -"},
+            {1161, "\nLiberalization (fortnight): -"},
+            {1285, "\nAgents (fortnight): -"}
+        };
+        var code = method.Body.Instructions;
+        foreach (var item in labels) {
+            var label = code.Single(i => i.Offset == item.Key);
+            var concat = code.Single(i => i.Offset == item.Key + 89);
+            if (label.OpCode != OpCodes.Ldstr || (string)label.Operand != item.Value ||
+                concat.OpCode != OpCodes.Call ||
+                ((MethodReference)concat.Operand).FullName != "System.String System.String::Concat(System.String[])" ||
+                concat.Next.OpCode != OpCodes.Callvirt ||
+                ((MethodReference)concat.Next.Operand).FullName != "System.Void UnityEngine.TextMesh::set_text(System.String)")
+                throw new InvalidDataException("Unexpected trade display at " + label.Offset);
+            calls.Add(concat);
+        }
+        return calls;
+    }
+
     static Dictionary<Instruction,object> SaveDate(MethodDefinition method)
     {
         var changes = new Dictionary<Instruction,object>();
@@ -77,13 +103,20 @@ internal class PatchAssembly
             if(old.FullName!=now.FullName || old.HasBody!=now.HasBody)throw new InvalidDataException(old.FullName);
             if(!old.HasBody)continue;
             var saveDate = SaveDate(old);
+            var trade = TradePenalties(old);
             var x=old.Body.Instructions;var y=now.Body.Instructions;
-            int added=old.Name=="Text" && layoutTypes.Contains(old.DeclaringType.FullName)?5:0;
+            int added=old.Name=="Text" && layoutTypes.Contains(old.DeclaringType.FullName)?4:0;
             if(y.Count!=x.Count+added)throw new InvalidDataException("IL size: "+old.FullName);
-            if(added>0 && (y[0].OpCode!=OpCodes.Ldarg || y[1].OpCode!=OpCodes.Ldarg ||
-                y[2].OpCode!=OpCodes.Conv_R4 || y[3].OpCode!=OpCodes.Call || y[4].OpCode!=OpCodes.Starg ||
-                !((MethodReference)y[3].Operand).FullName.Contains("Nostalgames.ZhCN.ChineseLayout::Prepare")))
-                throw new InvalidDataException("Layout prelude: "+old.FullName);
+            if(added > 0) {
+                string width = old.Parameters[1].ParameterType.FullName;
+                string helper = (width == "System.Int32") ? "PrepareInt" : "PrepareFloat";
+                string call = "System.String Nostalgames.ZhCN.ChineseLayout::" + helper + "(System.String," + width + "&)";
+                if (y[0].OpCode != OpCodes.Ldarg || y[0].Operand != now.Parameters[0] ||
+                    y[1].OpCode != OpCodes.Ldarga || y[1].Operand != now.Parameters[1] ||
+                    y[2].OpCode != OpCodes.Call || ((MethodReference)y[2].Operand).FullName != call ||
+                    y[3].OpCode != OpCodes.Starg || y[3].Operand != now.Parameters[0])
+                    throw new InvalidDataException("Layout prelude: "+old.FullName);
+            }
             for(int j=0;j<x.Count;j++)
             {
                 var a=x[j];var b=y[j+added];string expected=Operand(old,a.Operand,0);
@@ -94,6 +127,7 @@ internal class PatchAssembly
                 }
                 object changed;
                 if (saveDate.TryGetValue(a,out changed)) expected=Operand(old,changed,0);
+                if (trade.Contains(a)) expected = "System.String Nostalgames.ZhCN.ChineseLayout::FormatTradePenalty(System.String[])";
                 if(ReserveFloat(old,a) && b.OpCode==OpCodes.Call && ((MethodReference)b.Operand).FullName.Contains("ChineseLayout::FormatReserve")){checkedCount++;continue;}
                 if(a.OpCode!=b.OpCode || expected!=Operand(now,b.Operand,added))
                     throw new InvalidDataException("Unexpected IL change: "+old.FullName+" / "+j);
@@ -150,12 +184,17 @@ internal class PatchAssembly
         resolver.AddSearchDirectory(Path.GetDirectoryName(Path.GetFullPath(args[3])));
         var assembly = AssemblyDefinition.ReadAssembly(args[0],new ReaderParameters {AssemblyResolver=resolver});
         var helper = AssemblyDefinition.ReadAssembly(args[3]);
-        var prepare = assembly.MainModule.ImportReference(helper.MainModule.GetType("Nostalgames.ZhCN.ChineseLayout").Methods.Single(m=>m.Name=="Prepare"));
         int calls = 0;
         foreach (var type in Flatten(assembly.MainModule.Types)) foreach (var method in type.Methods) {
             if (!method.HasBody) continue;
             var saveDate = SaveDate(method);
+            var trade = TradePenalties(method);
             foreach (var instruction in method.Body.Instructions) {
+                if (trade.Contains(instruction)) {
+                    var formatter = helper.MainModule.GetType("Nostalgames.ZhCN.ChineseLayout").Methods.Single(m=>m.Name=="FormatTradePenalty");
+                    instruction.Operand = assembly.MainModule.ImportReference(formatter);
+                    continue;
+                }
                 object dateOperand;
                 if (saveDate.TryGetValue(instruction,out dateOperand)) {
                     instruction.Operand=dateOperand;
@@ -176,12 +215,15 @@ internal class PatchAssembly
             }
             if (method.Name!="Text" || !wrapped.Contains(type.FullName))continue;
             if(method.Parameters.Count<2 || method.Parameters[0].ParameterType.FullName!="System.String")throw new InvalidDataException(type.Name);
+            string width = method.Parameters[1].ParameterType.FullName;
+            if(width != "System.Int32" && width != "System.Single")throw new InvalidDataException(method.FullName);
+            string name = width == "System.Int32" ? "PrepareInt" : "PrepareFloat";
+            var prepare = assembly.MainModule.ImportReference(helper.MainModule.GetType("Nostalgames.ZhCN.ChineseLayout").Methods.Single(m=>m.Name==name));
             wrapped.Remove(type.FullName);
             var il=method.Body.GetILProcessor();
             var start=method.Body.Instructions[0];
             il.InsertBefore(start,il.Create(OpCodes.Ldarg,method.Parameters[0]));
-            il.InsertBefore(start,il.Create(OpCodes.Ldarg,method.Parameters[1]));
-            il.InsertBefore(start,il.Create(OpCodes.Conv_R4));
+            il.InsertBefore(start,il.Create(OpCodes.Ldarga,method.Parameters[1]));
             il.InsertBefore(start,il.Create(OpCodes.Call,prepare));
             il.InsertBefore(start,il.Create(OpCodes.Starg,method.Parameters[0]));
         }

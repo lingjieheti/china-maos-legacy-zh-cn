@@ -24,7 +24,7 @@ jobs:
       - name: Check release files and player commands without Steam
         run: python -B -X utf8 tools/check_release.py
       - name: Test game patch regressions
-        run: python -B -X utf8 games/mao/test_community_121.py
+        run: python -B -X utf8 -m unittest discover -s games/mao -p "test_*.py"
 
   installer-smoke:
     name: Windows installer smoke

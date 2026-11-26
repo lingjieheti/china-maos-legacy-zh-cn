@@ -131,7 +131,7 @@ def main():
     chars = set()
     check_mao(chars)
 
-    needed = {ord(c) for c in chars if 0x3400 <= ord(c) <= 0x9fff}
+    needed = {ord(c) for c in chars if c.isprintable()}
     for weight, sha in {
         "Regular":"4ee547aaae1f3b04404fffe295ceaf0bec2271b0abde2d8e47e36f24111f650b",
         "Semibold":"5a8ee249f37abd104dac21c4c6fda1edbcda13650eff64466a436cd300d162c6",
