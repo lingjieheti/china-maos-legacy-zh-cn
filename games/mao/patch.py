@@ -27,8 +27,7 @@ def ensure_dependencies(cache, offline=False):
     if not py.is_file():
         subprocess.run([sys.executable,"-m","venv",str(venv)],check=True)
     subprocess.run([str(py),"-m","pip","install","--disable-pip-version-check","UnityPy==1.25.4"],check=True)
-    env=dict(os.environ,PYTHONDONTWRITEBYTECODE="1")
-    raise SystemExit(subprocess.call([str(py),"-B","-X","utf8",str(HERE/"patch.py"),*sys.argv[1:]],env=env))
+    return py
 
 def revision(fonts):
     files=["build.py","PatchAssembly.cs","ChineseLayout.cs","manifest.json","assembly-plan.json","scenes.zh-CN.json","resources.zh-CN.json"]
@@ -96,7 +95,10 @@ def main():
                     return
             except ValueError:
                 pass
-        ensure_dependencies(cache,args.offline)
+        interpreter=ensure_dependencies(cache,args.offline)
+        if interpreter is not None:
+            # Release the per-game lock before starting the prepared interpreter.
+            return interpreter
         originals=backup/"original"
         source=originals if originals.is_dir() else game
         if source==originals:
@@ -115,7 +117,11 @@ def main():
         print("安装完成。原件备份位于 "+str(backup))
 
 if __name__=="__main__":
-    try:main()
+    try:
+        interpreter=main()
+        if isinstance(interpreter,Path):
+            env=dict(os.environ,PYTHONDONTWRITEBYTECODE="1")
+            raise SystemExit(subprocess.call([str(interpreter),"-B","-X","utf8",str(HERE/"patch.py"),*sys.argv[1:]],env=env))
     except (RuntimeError,ValueError,OSError,subprocess.CalledProcessError) as e:
         print(str(e),file=sys.stderr)
         raise SystemExit(1)

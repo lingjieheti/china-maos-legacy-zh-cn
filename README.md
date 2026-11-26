@@ -6,7 +6,7 @@
 
 首次安装会自动下载社区翻译素材，耗时取决于网络。也可手动选择目录。游戏更新后，可点 **核验汉化** 检查当前安装。需要恢复原版时，点击 **还原原版**。
 
-适配 Steam Windows x64 构建 **21377206**。[v1.2.2 界面复查](games/mao/COMMUNITY-1.2.2.md) · [校对记录](games/mao/AUDIT.md) · [补丁来源与技术说明](games/mao/README.md) · [游戏内截图](docs/mao-economy.webp)
+**v1.2.3** 补全《雷锋的遗产》的公民创建面板和三份公民结局档案，汉化“人民起义”“种族灭绝”两个结局标题。适配 Steam Windows x64 构建 **21377206**。[本次复查](games/mao/COMMUNITY-1.2.3.md) · [前版界面复查](games/mao/COMMUNITY-1.2.2.md) · [校对记录](games/mao/AUDIT.md) · [补丁来源与技术说明](games/mao/README.md) · [游戏内截图](docs/mao-economy.webp)
 
 <details>
 <summary>从源码构建安装程序</summary>

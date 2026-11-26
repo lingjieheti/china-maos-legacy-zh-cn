@@ -88,6 +88,34 @@ internal class PatchAssembly
         return changes;
     }
 
+    static bool HasTraitFallback(MethodDefinition method)
+    {
+        return method.DeclaringType.Name == "CitizenManager" && method.Name == "GetTraitTranslation";
+    }
+
+    static void LocalizeTraitFallback(MethodDefinition method)
+    {
+        // Keep the original branch target. Use the same language selector as
+        // the named traits, with the stock text in its Russian argument.
+        var code = method.Body.Instructions;
+        var label = code[code.Count - 2];
+        var ret = code[code.Count - 1];
+        if (label.OpCode != OpCodes.Ldstr || (string)label.Operand != "Отсутствует" || ret.OpCode != OpCodes.Ret)
+            throw new InvalidDataException("Unexpected trait fallback: " + method.FullName);
+        var translation = code.First(i => i.OpCode == OpCodes.Callvirt &&
+            ((MethodReference)i.Operand).FullName == "System.String TranslateScriptDLC::GetTranslation(System.String,System.String)").Operand;
+        var field = method.DeclaringType.Fields.Single(f => f.Name == "translateScript" && f.FieldType.Name == "TranslateScriptDLC");
+        label.OpCode = OpCodes.Ldarg_0;
+        label.Operand = null;
+        ret.OpCode = OpCodes.Ldfld;
+        ret.Operand = field;
+        var il = method.Body.GetILProcessor();
+        il.Emit(OpCodes.Ldstr, "无");
+        il.Emit(OpCodes.Ldstr, "Отсутствует");
+        il.Emit(OpCodes.Callvirt, (MethodReference)translation);
+        il.Emit(OpCodes.Ret);
+    }
+
     static void Audit(string source, string output, IDictionary<string,Row> map, ReaderParameters settings)
     {
         var original=AssemblyDefinition.ReadAssembly(source,settings);
@@ -106,7 +134,18 @@ internal class PatchAssembly
             var trade = TradePenalties(old);
             var x=old.Body.Instructions;var y=now.Body.Instructions;
             int added=old.Name=="Text" && layoutTypes.Contains(old.DeclaringType.FullName)?4:0;
-            if(y.Count!=x.Count+added)throw new InvalidDataException("IL size: "+old.FullName);
+            bool traitTail=HasTraitFallback(old);
+            if(y.Count!=x.Count+added+(traitTail?4:0))throw new InvalidDataException("IL size: "+old.FullName);
+            if(traitTail) {
+                int p=x.Count-2;
+                if(y[p].OpCode!=OpCodes.Ldarg_0 || y[p+1].OpCode!=OpCodes.Ldfld ||
+                   ((FieldReference)y[p+1].Operand).FullName!="TranslateScriptDLC CitizenManager::translateScript" ||
+                   y[p+2].OpCode!=OpCodes.Ldstr || (string)y[p+2].Operand!="无" ||
+                   y[p+3].OpCode!=OpCodes.Ldstr || (string)y[p+3].Operand!=(string)x[p].Operand ||
+                   y[p+4].OpCode!=OpCodes.Callvirt ||
+                   ((MethodReference)y[p+4].Operand).FullName!="System.String TranslateScriptDLC::GetTranslation(System.String,System.String)" ||
+                   y[p+5].OpCode!=OpCodes.Ret) throw new InvalidDataException("Trait selector: "+old.FullName);
+            }
             if(added > 0) {
                 string width = old.Parameters[1].ParameterType.FullName;
                 string helper = (width == "System.Int32") ? "PrepareInt" : "PrepareFloat";
@@ -120,6 +159,7 @@ internal class PatchAssembly
             for(int j=0;j<x.Count;j++)
             {
                 var a=x[j];var b=y[j+added];string expected=Operand(old,a.Operand,0);
+                if(traitTail && j>=x.Count-2){checkedCount++;continue;}
                 if(a.OpCode==OpCodes.Ldstr){
                     Row row;
                     string site=old.MetadataToken.RID.ToString()+":"+a.Offset.ToString();
@@ -213,6 +253,7 @@ internal class PatchAssembly
                 if(row.Sites.Count>0 && !row.Sites.Contains(site))continue;
                 instruction.Operand=row.Chinese; calls++; seen.Add(original);
             }
+            if (HasTraitFallback(method)) LocalizeTraitFallback(method);
             if (method.Name!="Text" || !wrapped.Contains(type.FullName))continue;
             if(method.Parameters.Count<2 || method.Parameters[0].ParameterType.FullName!="System.String")throw new InvalidDataException(type.Name);
             string width = method.Parameters[1].ParameterType.FullName;
