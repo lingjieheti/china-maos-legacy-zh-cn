@@ -170,6 +170,11 @@ def build_assembly(data, stage, cache, package, temp):
                 chinese = "\n" + chinese
             if original.endswith("\n") and not chinese.endswith("\n"):
                 chinese += "\n"
+        elif choice == "!credits-thanks":
+            prefix = "Special thanks: "
+            if not original.startswith(prefix):
+                raise ValueError("鸣谢页的署名模板不匹配")
+            chinese = "特别鸣谢：" + original[len(prefix):]
         else:
             chinese = choice
         rows.append("\t".join([b64(original),b64(terminology(chinese)),",".join(sites)]))
@@ -239,7 +244,26 @@ def merge_resources(original, upstream, font_files, edits):
                 ru=original.objects[285].read()
                 if ru.m_Name!="Traits21_ru":raise ValueError("法国特质表模板不匹配")
                 originals=split_lines(ru.m_Script)
+            if name=="other_text_en":
+                ru=original.objects[320].read()
+                if (ru.m_Name!="other_text_ru" or not originals[486].startswith("Lure country")
+                        or any(x.strip() for x in originals[490:564])):
+                    raise ValueError("外交选项文本与当前支持的版本不一致")
+                originals[486:564]=split_lines(ru.m_Script)[486:564]
             lines = split_lines(community.m_Script) if name!="Traits21_en" else originals.copy()
+            if name=="Events_text_en":
+                # Six French scenario events request indices present only in the
+                # Russian Steam asset. Both new games and loaded games read this table.
+                russian=original.objects[309].read()
+                source_rows=split_lines(russian.m_Script)
+                if (russian.m_Name!="Events_text_ru" or (len(originals),len(lines),len(source_rows))!=(1665,1665,1711)
+                        or originals[-1] or lines[-1] or source_rows[-1]):
+                    raise ValueError("法国剧情事件表的索引与支持的游戏版本不一致")
+                missing=range(len(originals)-1,len(source_rows)-1)
+                if any(str(i) not in edits[name] for i in missing):
+                    raise ValueError("法国剧情中文表不完整")
+                originals[-1:-1]=[source_rows[i] for i in missing]
+                lines[-1:-1]=[edits[name][str(i)] for i in missing]
             while len(lines)<len(originals) and originals[len(lines)].strip()=="":
                 lines.append("")
             if len(lines)!=len(originals):
@@ -413,6 +437,10 @@ def build_assets(data, stage, cache, fontdir):
     edited=json.loads((HERE/"resources.zh-CN.json").read_text("utf-8"))
     for rel in MANIFEST["originals"]:
         if rel.endswith(".dll"):
+            continue
+        if rel=="sharedassets17.assets.resS":
+            from tutorial_art import localize_stream
+            localize_stream(data/rel,stage/rel,fontdir/"UI-Semibold.ttf")
             continue
         env=UnityPy.load((data/rel).read_bytes())
         src=env.file

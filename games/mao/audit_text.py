@@ -150,6 +150,14 @@ def audit(original, community, localized):
                 error({"script_markers": name})
         mirror = russian if name in {"Part21","Traits21"} else eng
         src, target = mirror.splitlines(), final.splitlines()
+        if name=="other_text":
+            src[486:564]=russian.splitlines()[486:564]
+            src[495]=""  # A section marker internal to the Russian source file.
+        if name=="Events_text":
+            fallback=russian.splitlines()
+            if len(src)!=1664 or len(fallback)!=1710:
+                error({"unexpected_french_event_sources":[len(src),len(fallback)]})
+            src.extend(fallback[len(src):])
         upstream = base.get(en,"").splitlines()
         if len(src)!=len(target):
             error({"line_count": [name,len(src),len(target)]})

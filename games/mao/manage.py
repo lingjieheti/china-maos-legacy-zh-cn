@@ -43,7 +43,8 @@ def check_state(state,game,backup,originals):
     # 1.2.1 added the language-selector artwork. Old receipts still describe
     # precisely the files that their version installed and can restore.
     artwork={"sharedassets1.assets","sharedassets5.assets"}
-    if recorded not in (set(originals),set(originals)-artwork,set(originals)-{"sharedassets5.assets"}):
+    before_tutorial=set(originals)-{"sharedassets17.assets.resS"}
+    if recorded not in (set(originals),before_tutorial,before_tutorial-artwork,before_tutorial-{"sharedassets5.assets"}):
         raise ValueError("安装记录与本版本的文件清单不符")
     if Path(state["game"])!=game:
         # Steam can move an installation, backup folder included. Only reuse a

@@ -6,7 +6,7 @@
 
 首次安装会自动下载社区翻译素材，耗时取决于网络。也可手动选择目录。游戏更新后，可点 **核验汉化** 检查当前安装。需要恢复原版时，点击 **还原原版**。
 
-**v1.2.3** 补全《雷锋的遗产》的公民创建面板和三份公民结局档案，汉化“人民起义”“种族灭绝”两个结局标题。适配 Steam Windows x64 构建 **21377206**。[本次复查](games/mao/COMMUNITY-1.2.3.md) · [前版界面复查](games/mao/COMMUNITY-1.2.2.md) · [校对记录](games/mao/AUDIT.md) · [补丁来源与技术说明](games/mao/README.md) · [游戏内截图](docs/mao-economy.webp)
+**v1.2.4** 补齐法国剧本六起事件及外交选项的中文，校正中国外交条件，补译结局、公民操作和科研提示。内置教程的 31 段说明和 22 张操作截图同步汉化。适配 Steam Windows x64 构建 **21377206**。[本次文本复查](games/mao/COMMUNITY-1.2.4.md) · [公民档案与结局](games/mao/COMMUNITY-1.2.3.md) · [界面复查](games/mao/COMMUNITY-1.2.2.md) · [补丁来源与技术说明](games/mao/README.md)
 
 <details>
 <summary>从源码构建安装程序</summary>

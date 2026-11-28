@@ -66,6 +66,23 @@ internal class PatchAssembly
         return calls;
     }
 
+    // The Chinese player-country branch alone uses English's old indices here.
+    // The French/Soviet text and the Russian branch already use the full table.
+    static Dictionary<Instruction,int> ChineseDiplomacyLabels(MethodDefinition method)
+    {
+        var result = new Dictionary<Instruction,int>();
+        if (method.DeclaringType.FullName != "DiploButtonScript" || method.Name != "ChineseInfo") return result;
+        foreach (var i in method.Body.Instructions) {
+            if (i.OpCode != OpCodes.Ldc_I4 || (int)i.Operand < 486 || (int)i.Operand > 489) continue;
+            var field = i.Previous.Operand as FieldReference;
+            if (i.Previous.OpCode == OpCodes.Ldfld && field != null && field.Name == "other_text" &&
+                    i.Next.OpCode == OpCodes.Ldelem_Ref) result.Add(i, (int)i.Operand + 74);
+        }
+        if (!result.Values.OrderBy(x => x).SequenceEqual(new[]{560,560,561,561,562,562,563}))
+            throw new InvalidDataException("Unexpected diplomacy display indices");
+        return result;
+    }
+
     static Dictionary<Instruction,object> SaveDate(MethodDefinition method)
     {
         var changes = new Dictionary<Instruction,object>();
@@ -131,6 +148,7 @@ internal class PatchAssembly
             if(old.FullName!=now.FullName || old.HasBody!=now.HasBody)throw new InvalidDataException(old.FullName);
             if(!old.HasBody)continue;
             var saveDate = SaveDate(old);
+            var diplomacy = ChineseDiplomacyLabels(old);
             var trade = TradePenalties(old);
             var x=old.Body.Instructions;var y=now.Body.Instructions;
             int added=old.Name=="Text" && layoutTypes.Contains(old.DeclaringType.FullName)?4:0;
@@ -167,6 +185,7 @@ internal class PatchAssembly
                 }
                 object changed;
                 if (saveDate.TryGetValue(a,out changed)) expected=Operand(old,changed,0);
+                if (diplomacy.ContainsKey(a)) expected=diplomacy[a].ToString();
                 if (trade.Contains(a)) expected = "System.String Nostalgames.ZhCN.ChineseLayout::FormatTradePenalty(System.String[])";
                 if(ReserveFloat(old,a) && b.OpCode==OpCodes.Call && ((MethodReference)b.Operand).FullName.Contains("ChineseLayout::FormatReserve")){checkedCount++;continue;}
                 if(a.OpCode!=b.OpCode || expected!=Operand(now,b.Operand,added))
@@ -228,8 +247,13 @@ internal class PatchAssembly
         foreach (var type in Flatten(assembly.MainModule.Types)) foreach (var method in type.Methods) {
             if (!method.HasBody) continue;
             var saveDate = SaveDate(method);
+            var diplomacy = ChineseDiplomacyLabels(method);
             var trade = TradePenalties(method);
             foreach (var instruction in method.Body.Instructions) {
+                if (diplomacy.ContainsKey(instruction)) {
+                    instruction.Operand = diplomacy[instruction];
+                    continue;
+                }
                 if (trade.Contains(instruction)) {
                     var formatter = helper.MainModule.GetType("Nostalgames.ZhCN.ChineseLayout").Methods.Single(m=>m.Name=="FormatTradePenalty");
                     instruction.Operand = assembly.MainModule.ImportReference(formatter);

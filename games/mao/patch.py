@@ -30,7 +30,7 @@ def ensure_dependencies(cache, offline=False):
     return py
 
 def revision(fonts):
-    files=["build.py","PatchAssembly.cs","ChineseLayout.cs","manifest.json","assembly-plan.json","scenes.zh-CN.json","resources.zh-CN.json"]
+    files=["build.py","PatchAssembly.cs","ChineseLayout.cs","manifest.json","assembly-plan.json","scenes.zh-CN.json","resources.zh-CN.json","tutorial_art.py"]
     def source_hash(name):
         text=(HERE/name).read_text("utf-8-sig")
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
